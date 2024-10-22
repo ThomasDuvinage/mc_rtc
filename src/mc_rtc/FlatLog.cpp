@@ -78,7 +78,7 @@ void FlatLog::appendBin(const std::string & f)
 void FlatLog::appendFlat(const std::string & f)
 {
   auto fpath = bfs::path(f);
-  if(!bfs::exists(f) || !bfs::is_regular(f))
+  if(!bfs::exists(f) || !bfs::is_regular_file(f))
   {
     log::error("Could not open log {}", f);
     return;
