@@ -16,7 +16,7 @@ bool iterate_binary_log(const std::string & f,
                         const std::string & time)
 {
   auto fpath = bfs::path(f);
-  if(!bfs::exists(f) || !bfs::is_regular(f))
+  if(!bfs::exists(f) || !bfs::is_regular_file(f))
   {
     log::error("Could not open log {}, file does not exist", f);
     return false;
