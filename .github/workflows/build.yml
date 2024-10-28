@@ -92,7 +92,7 @@ jobs:
           apt: cython cython3 python-pytest python3-pytest python-numpy python3-numpy python-coverage python3-coverage python-setuptools python3-setuptools libeigen3-dev doxygen doxygen-latex libboost-all-dev libtinyxml2-dev libgeos++-dev libnanomsg-dev libyaml-cpp-dev libltdl-dev libnotify-dev
         macos: |
           brew: pipx eigen boost tinyxml2 geos nanomsg yaml-cpp pkg-config libtool gcc libnotify
-          pipx: Cython coverage numpy pytest
+          pipx: Cython coverage numpy pytest setuptools
         windows: |
           pip: Cython coverage numpy pytest
           github:
