@@ -6,7 +6,7 @@ set(MC_RTC_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../include")
 
 set(VERSION_SCRIPT_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/version-script.lds")
 
-if(UNIX AND NOT EMSCRIPTEN)
+if(UNIX AND NOT EMSCRIPTEN AND NOT (APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm"))
   include(CheckCXXSourceCompiles)
   check_cxx_compiler_flag("-msse2" SSE2_SUPPORTED)
 endif()
