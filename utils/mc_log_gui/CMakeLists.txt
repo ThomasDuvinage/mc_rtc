@@ -5,7 +5,7 @@
 execute_process(
   COMMAND
     ${MC_LOG_UI_PYTHON_EXECUTABLE} -c
-    "from distutils import sysconfig; print(sysconfig.get_python_lib(prefix = '${CMAKE_INSTALL_PREFIX}', plat_specific = True))"
+    "import sysconfig; print(sysconfig.get_path('platlib', 'posix_user', {'userbase': '${CMAKE_INSTALL_PREFIX}'}))"
   RESULT_VARIABLE PYTHON_INSTALL_DIR_FOUND
   OUTPUT_VARIABLE PYTHON_INSTALL_DIR
   OUTPUT_STRIP_TRAILING_WHITESPACE
