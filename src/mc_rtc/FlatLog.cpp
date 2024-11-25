@@ -34,7 +34,7 @@ void FlatLog::load(const std::string & fpath)
 void FlatLog::append(const std::string & f)
 {
   auto fpath = bfs::path(f);
-  if(fpath.extension() == ".flat") { appendFlat(f); }
+  if(fpath.extension().string() == ".flat") { appendFlat(f); }
   else { appendBin(f); }
 }
 
