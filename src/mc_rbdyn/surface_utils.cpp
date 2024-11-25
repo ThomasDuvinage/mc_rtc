@@ -123,7 +123,7 @@ std::vector<std::shared_ptr<Surface>> readRSDFFromDir(const std::string & dirnam
     std::copy(bfs::directory_iterator(p), bfs::directory_iterator(), std::back_inserter(files));
     for(const bfs::path & file : files)
     {
-      if(file.extension() == ".rsdf")
+      if(file.extension().string() == ".rsdf")
       {
         std::ifstream ifs(file.string());
         std::stringstream ss;
