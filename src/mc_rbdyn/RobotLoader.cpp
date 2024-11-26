@@ -27,7 +27,7 @@ void handle_aliases_dir(const bfs::path & dir)
   std::copy(dit, endit, std::back_inserter(drange));
   for(const auto & p : drange)
   {
-    const auto & extension = bfs::extension(p);
+    const auto & extension = p.extension().string();
     if(extension == ".yml" || extension == ".json" || extension == ".yaml")
     {
       mc_rbdyn::RobotLoader::load_aliases(p.string());
