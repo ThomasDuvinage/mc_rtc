@@ -941,9 +941,9 @@ then
   check_and_clone_git_dependency jrl-umi3218/mc_rtc_msgs $CATKIN_DATA_WORKSPACE_SRC
   check_and_clone_git_dependency jrl-umi3218/mc_rtc_ros $CATKIN_WORKSPACE_SRC
 else
-  check_and_clone_git_dependency jrl-umi3218/jvrc_description $SOURCE_DIR
-  check_and_clone_git_dependency jrl-umi3218/mc_env_description $SOURCE_DIR
-  check_and_clone_git_dependency jrl-umi3218/mc_int_obj_description $SOURCE_DIR
+  check_and_clone_git_dependency jrl-umi3218/jvrc_description#main $SOURCE_DIR
+  check_and_clone_git_dependency jrl-umi3218/mc_env_description#main $SOURCE_DIR
+  check_and_clone_git_dependency jrl-umi3218/mc_int_obj_description#main $SOURCE_DIR
 fi
 
 echo_log "-- [OK] All manadatory repositories successfuly cloned or updated"
