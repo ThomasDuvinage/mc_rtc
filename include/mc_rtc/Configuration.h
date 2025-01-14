@@ -1758,7 +1758,7 @@ template<>
 struct formatter<mc_rtc::Configuration> : public formatter<string_view>
 {
   template<typename FormatContext>
-  auto format(const mc_rtc::Configuration & c, FormatContext & ctx) -> decltype(ctx.out())
+  auto format(const mc_rtc::Configuration & c, FormatContext & ctx) -> decltype(ctx.out()) const
   {
     return formatter<string_view>::format(static_cast<std::string>(c), ctx);
   }
