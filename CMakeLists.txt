@@ -265,7 +265,7 @@ set(MC_RTC_BINDIR "${CMAKE_INSTALL_FULL_BINDIR}")
 set(MC_RTC_LIBDIR "${CMAKE_INSTALL_FULL_LIBDIR}")
 
 find_package(mc_rtc_3rd_party_ros QUIET)
-if(TARGET mc_rtc_3rd_party::ROS)
+if(TARGET mc_rtc_3rd_party::ROS AND NOT DISABLE_ROS)
   set(MC_RTC_HAS_ROS_SUPPORT "true")
 else()
   set(MC_RTC_HAS_ROS_SUPPORT "false")
