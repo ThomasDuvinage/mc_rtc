@@ -961,6 +961,11 @@ bool MCGlobalController::AddController(const std::string & name)
     }
     controllers[name]->datastore().make_call("Global::EnableController",
                                              [this](const std::string & name) { return EnableController(name); });
+    // Load robots described in the "robots" entry of the controller's configuration, whether or
+    // not the controller's own constructor forwarded that configuration to MCController. This
+    // must happen before createObserverPipelines() below so observer pipelines can target robots
+    // that only exist because of this entry.
+    controllers[name]->loadAdditionalRobots(config.controllers_configs[name]);
     if(config.enable_log)
     {
       controllers[name]->logger().setup(config.log_policy, config.log_directory, config.log_template);

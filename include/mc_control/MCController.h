@@ -129,6 +129,35 @@ public:
    **/
   virtual void createObserverPipelines(const mc_rtc::Configuration & config);
 
+  /** Load additional robots described in the "robots" entry of the provided configuration
+   *
+   * This is the same "robots" entry documented for the controller's own configuration (see \ref
+   * MCController(std::shared_ptr<mc_rbdyn::RobotModule>, double, const mc_rtc::Configuration &,
+   * ControllerParameters)), but can be called after construction with an arbitrary configuration.
+   *
+   * Robots whose name is already loaded in this controller (e.g. because the constructor already
+   * processed the same entry, or a robot module already provides that name such as the default
+   * "ground" environment) are silently skipped, so this function is idempotent and safe to call
+   * more than once with overlapping configurations.
+   *
+   * For every newly loaded robot that has actuated joints (i.e.
+   * `robot.mb().nrDof() - robot.mb().joint(0).dof() > 0`), a \ref mc_tasks::PostureTask is also
+   * created and added to the solver, mirroring what \ref mc_control::fsm::Controller does for all
+   * of its robots. Stiffness/weight default to 1.0/10.0 and can be overriden with a top-level
+   * `<robot_name>: {posture: {stiffness: ..., weight: ...}}` entry (same convention as the FSM
+   * controller). This task can be retrieved with \ref additionalPostureTask.
+   *
+   * \param config Configuration containing a "robots" entry
+   */
+  void loadAdditionalRobots(const mc_rtc::Configuration & config);
+
+  /** Returns the posture task created by \ref loadAdditionalRobots for the given robot, or
+   * nullptr if no such task exists (e.g. the robot has no actuated joint, was not loaded by \ref
+   * loadAdditionalRobots, or is the controller's main robot -- see the \ref postureTask member for
+   * that one).
+   */
+  std::shared_ptr<mc_tasks::PostureTask> additionalPostureTask(const std::string & robotName) const;
+
   /** This function is called before the run() function at each time step of the process
    * driving the robot (i.e. simulation or robot's controller). The default
    * behaviour is to call the run() function of each loaded observer and update
@@ -654,6 +683,23 @@ protected:
                               mc_rbdyn::Robots & robots,
                               const mc_rbdyn::LoadRobotParameters & params);
 
+  /** Resolve and load a robot described by a "robots/<name>" configuration entry
+   *
+   * \param rname Name the robot will be loaded under
+   * \param rconfig Configuration for this robot, must have a "module" or "visual" entry
+   *
+   * \returns The loaded robot
+   */
+  mc_rbdyn::Robot & loadRobotFromConfig(const std::string & rname, const mc_rtc::Configuration & rconfig);
+
+  /** Apply the "init_pos" and "frames" entries of a "robots/<name>" configuration entry to an
+   * already loaded robot. Does nothing if \p robotName is not loaded in this controller.
+   *
+   * \param robotName Name of the robot to initialize
+   * \param config Configuration for this robot
+   */
+  void initRobotFromConfig(const std::string & robotName, const mc_rtc::Configuration & config);
+
   /** Add a control robot to the log */
   void addRobotToLog(const mc_rbdyn::Robot & robot);
 
@@ -702,6 +748,9 @@ protected:
   /** Collision managers for robot-pair (r1, r2), if r1 == r2 this is
    * effectively a self-collision manager */
   std::map<std::pair<std::string, std::string>, std::shared_ptr<mc_solver::CollisionsConstraint>> collision_constraints_;
+
+  /** Posture tasks created by loadAdditionalRobots() for actuated robots it loads */
+  std::map<std::string, std::shared_ptr<mc_tasks::PostureTask>> additional_posture_tasks_;
 
   /** FSM contacts */
   ContactSet contacts_;

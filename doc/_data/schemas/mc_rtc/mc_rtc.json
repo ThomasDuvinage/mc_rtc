@@ -44,6 +44,10 @@
         }
       ]
       },
+      "robots": {
+        "$ref": "../common/robots.json",
+        "description": "Additional robots to load, shared by every enabled controller. Individual controllers may extend or override this via their own 'robots' entry."
+      },
       "Enabled": {
         "oneOf": [
           { "$ref": "#/definitions/SampleControllerNames", "description": "Name of a single controller to enable" },

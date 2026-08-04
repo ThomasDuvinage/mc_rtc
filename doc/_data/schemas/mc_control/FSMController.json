@@ -30,36 +30,7 @@
       "description": "If true, state factory will be more verbose."
     },
     "robots": {
-      "type": "object",
-      "title": "Additional Robots",
-      "description": "Additional robots to load. Keys are robot names, values are robot module definitions or visual geometry.",
-      "additionalProperties": {
-        "_expand": true,
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "module": {
-                "type": "string",
-                "description": "Module name: this can be any robot module name, robot alias (such as env/ground or object/box), or any path supported by RobotLoader"
-              },
-              "init_pos": { "$ref": "../SpaceVecAlg/PTransformd.json", "description": "Initial position of the robot in the world frame." }
-            },
-            "required": ["module"]
-          },
-          {
-            "allOf": [
-              { "$ref": "../mc_rbdyn/RobotModuleVisual.json" },
-              {
-                "properties": {
-                "init_pos": { "$ref": "../SpaceVecAlg/PTransformd.json", "description": "Initial position of the robot in the world frame." }
-                }
-              }
-            ],
-            "required": ["name", "origin", "geometry", "inertia"]
-          }
-        ]
-      }
+      "$ref": "../common/robots.json"
     },
     "constraints": {
       "type": "array",
