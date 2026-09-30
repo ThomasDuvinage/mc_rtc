@@ -10,7 +10,80 @@
 
 #include <mesh_sampling/mesh_sampling.h>
 
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <fstream>
+#include <sstream>
+
 namespace fs = std::filesystem;
+
+namespace
+{
+
+// A single mesh file can be reused by several bodies with a mirrored URDF
+// <mesh scale="..."> (a negative component on one axis), e.g. to share one
+// mesh between a robot's left/right sides. mesh_sampling only supports a
+// uniform scale factor (see meshScale() in generate_convexes()), so a
+// mirrored reuse needs its own, separately-mirrored convex hull file --
+// otherwise every body sharing that mesh file ends up bound to the same
+// (arbitrarily-mirrored-or-not) hull, regardless of which of them is
+// actually mirrored.
+using MirrorAxes = std::array<bool, 3>;
+
+MirrorAxes meshMirrorAxes(const rbd::parsers::Geometry::Mesh & mesh)
+{
+  return {mesh.scaleV.x() < 0, mesh.scaleV.y() < 0, mesh.scaleV.z() < 0};
+}
+
+std::string mirrorSuffix(const MirrorAxes & mirror)
+{
+  std::string suffix;
+  if(mirror[0]) { suffix += "x"; }
+  if(mirror[1]) { suffix += "y"; }
+  if(mirror[2]) { suffix += "z"; }
+  return suffix.empty() ? std::string{} : "-mirror" + suffix;
+}
+
+// Convex hull files are qhull's "o f" (OFF-like) output: a dimension line, a
+// "<numVertices> <numFacets> <numRidges>" header, that many "x y z" vertex
+// lines, then facet/ridge lines that reference vertices purely by index.
+// Reflecting the vertices while leaving those indices untouched still
+// yields a valid convex polytope description, so mirroring only requires
+// rewriting the vertex block.
+void writeMirroredConvexFile(const fs::path & src, const fs::path & dst, const MirrorAxes & mirror)
+{
+  std::ifstream ifs(src);
+  if(!ifs.is_open())
+  {
+    mc_rtc::log::error("[RobotModule] Could not open convex file {} for mirroring", src.string());
+    return;
+  }
+  std::ofstream ofs(dst);
+  if(!ofs.is_open())
+  {
+    mc_rtc::log::error("[RobotModule] Could not create mirrored convex file {}", dst.string());
+    return;
+  }
+  std::string dim_line;
+  std::getline(ifs, dim_line);
+  ofs << dim_line << "\n";
+  std::string header_line;
+  std::getline(ifs, header_line);
+  ofs << header_line << "\n";
+  size_t numVertices = 0;
+  std::istringstream(header_line) >> numVertices;
+  for(size_t i = 0; i < numVertices && ifs; ++i)
+  {
+    double x, y, z;
+    ifs >> x >> y >> z;
+    ofs << (mirror[0] ? -x : x) << " " << (mirror[1] ? -y : y) << " " << (mirror[2] ? -z : z) << "\n";
+  }
+  ifs >> std::ws; // consume trailing whitespace/newline left after the last "x y z" extraction
+  ofs << ifs.rdbuf();
+}
+
+} // namespace
 
 namespace mc_rbdyn
 {
@@ -71,6 +144,35 @@ void RobotModule::init(const rbd::parsers::ParserResult & res)
 
 void RobotModule::generate_convexes(bool regenerate, unsigned int sampling_point)
 {
+  // A mesh's URDF <collision><geometry><mesh scale="x y z"> is parsed into
+  // Geometry::Mesh::scaleV, but mesh_sampling (via Assimp's
+  // AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY) only supports a single uniform scale
+  // factor -- it cannot represent an anisotropic scale or an axis mirror
+  // (negative component, commonly used to mirror a single mesh file between
+  // a robot's left/right sides). We take the scale's average magnitude
+  // (correct for the common case of a uniform scale, e.g. a mm->m
+  // conversion, with or without a mirrored axis) and warn when that
+  // assumption doesn't hold, since silently ignoring scale entirely (as
+  // before) produces convex hulls that can be orders of magnitude larger or
+  // smaller than the actual collision mesh.
+  auto meshScale = [&](const rbd::parsers::Geometry::Mesh & mesh) -> float
+  {
+    const auto & s = mesh.scaleV;
+    double sx = std::abs(s.x());
+    double sy = std::abs(s.y());
+    double sz = std::abs(s.z());
+    double avg = (sx + sy + sz) / 3.0;
+    double maxDev = std::max({std::abs(sx - avg), std::abs(sy - avg), std::abs(sz - avg)});
+    if(avg > 0 && maxDev / avg > 1e-3)
+    {
+      mc_rtc::log::warning("[RobotModule] Mesh {} has a non-uniform scale ({}, {}, {}), convex hull generation only "
+                           "supports a uniform scale factor and will use their average magnitude ({}); the "
+                           "generated convex hull may not exactly match the collision mesh",
+                           mesh.filename, s.x(), s.y(), s.z(), avg);
+    }
+    return static_cast<float>(avg);
+  };
+
   auto urdfCRC = [&]()
   {
     uint32_t crc = 0;
@@ -80,24 +182,57 @@ void RobotModule::generate_convexes(bool regenerate, unsigned int sampling_point
       {
         if(c.geometry.type == rbd::parsers::Geometry::Type::MESH)
         {
-          const auto & mesh_path = fs::path(boost::get<rbd::parsers::Geometry::Mesh>(c.geometry.data).filename);
+          const auto & mesh = boost::get<rbd::parsers::Geometry::Mesh>(c.geometry.data);
+          const auto & mesh_path = fs::path(mesh.filename);
           crc += fs::file_size(mc_rtc::convertURI(mesh_path));
+          // Fold the scale into the cache key so that a scale change (in
+          // particular, this fix starting to honor a scale that was
+          // previously silently ignored) invalidates stale cached convexes.
+          crc += static_cast<uint32_t>(meshScale(mesh) * 1e6);
+          // Same for mirroring support: a mesh that needs a mirrored convex
+          // (see writeMirroredConvexFile()) bumps the cache key so it gets
+          // (re)generated once this support is added.
+          if(!mirrorSuffix(meshMirrorAxes(mesh)).empty()) { crc += 7919; }
         }
       }
     }
     return crc;
   };
 
-  auto generate = [&](const fs::path & mesh_file, const fs::path & output_convex_dir)
+  auto generate =
+      [&](const fs::path & mesh_file, const fs::path & output_convex_dir, float scale, const MirrorAxes & mirror)
   {
     if(!fs::exists(mesh_file))
     {
       mc_rtc::log::error_and_throw("Couldn't find meshes at {} for {}", mesh_file.string(), name);
     }
 
-    mesh_sampling::MeshSampling sampler(mesh_file);
+    mesh_sampling::MeshSampling sampler(mesh_file, scale);
     const auto & meshes = sampler.create_clouds(sampling_point);
+    // Note: create_convexes()'s return value maps each cloud name to the
+    // generated file's *content* (qhull's text output), not its path -- the
+    // path it wrote to is reconstructed below instead, following the same
+    // naming rule create_convexes() uses internally.
     sampler.create_convexes(meshes, output_convex_dir, false);
+
+    auto suffix = mirrorSuffix(mirror);
+    if(!suffix.empty())
+    {
+      for(const auto & cloud : meshes)
+      {
+        std::string stem = fs::path(cloud.first).filename().stem().string();
+        fs::path base_path = output_convex_dir / (stem + "-ch.txt");
+        if(!fs::exists(base_path))
+        {
+          mc_rtc::log::error("[RobotModule] Expected convex file {} was not generated, cannot create its mirrored "
+                             "variant",
+                             base_path.string());
+          continue;
+        }
+        fs::path mirrored_path = output_convex_dir / (stem + suffix + "-ch.txt");
+        writeMirroredConvexFile(base_path, mirrored_path, mirror);
+      }
+    }
   };
 
   if(!name.empty())
@@ -131,8 +266,9 @@ void RobotModule::generate_convexes(bool regenerate, unsigned int sampling_point
         {
           if(c.geometry.type == rbd::parsers::Geometry::Type::MESH)
           {
-            const auto & mesh_file = fs::path(boost::get<rbd::parsers::Geometry::Mesh>(c.geometry.data).filename);
-            generate(mc_rtc::convertURI(mesh_file), convex_dir);
+            const auto & mesh = boost::get<rbd::parsers::Geometry::Mesh>(c.geometry.data);
+            const auto & mesh_file = fs::path(mesh.filename);
+            generate(mc_rtc::convertURI(mesh_file), convex_dir, meshScale(mesh), meshMirrorAxes(mesh));
           }
         }
       }
@@ -153,8 +289,9 @@ void RobotModule::bind_convexes()
     {
       if(collisions[0].geometry.type == rbd::parsers::Geometry::Type::MESH)
       {
-        const auto & mesh_file = boost::get<rbd::parsers::Geometry::Mesh>(collisions[0].geometry.data).filename;
-        fs::path convex_path = fs::path(convex_dir) / (mc_rtc::filename(mesh_file) + "-ch.txt");
+        const auto & mesh = boost::get<rbd::parsers::Geometry::Mesh>(collisions[0].geometry.data);
+        fs::path convex_path =
+            fs::path(convex_dir) / (mc_rtc::filename(mesh.filename) + mirrorSuffix(meshMirrorAxes(mesh)) + "-ch.txt");
 
         if(!fs::exists(convex_path))
         {
@@ -172,8 +309,9 @@ void RobotModule::bind_convexes()
     {
       if(col.geometry.type == rbd::parsers::Geometry::Type::MESH)
       {
-        const auto & mesh_file = boost::get<rbd::parsers::Geometry::Mesh>(col.geometry.data).filename;
-        fs::path convex_path = fs::path(convex_dir) / (mc_rtc::filename(mesh_file) + "-ch.txt");
+        const auto & mesh = boost::get<rbd::parsers::Geometry::Mesh>(col.geometry.data);
+        fs::path convex_path =
+            fs::path(convex_dir) / (mc_rtc::filename(mesh.filename) + mirrorSuffix(meshMirrorAxes(mesh)) + "-ch.txt");
 
         if(!fs::exists(convex_path))
         {
