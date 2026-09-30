@@ -38,6 +38,17 @@ MainRobot:
   module: JVRC1
 {% endcapture %}
     {% include mc_rtc_configuration_row.html entry="MainRobot" desc="This entry dictates the main robot used by all controllers. Most interface cannot infer the correct module to use based on the simulation environment so this is the user's responsibility to make sure the two match." example="MainRobot: JVRC1" example2=MainRobot_example2%}
+{% capture robots_example %}
+MainRobot: JVRC1
+robots:
+  ground:
+    module: env/ground
+  table:
+    module: env/table
+    init_pos:
+      translation: [1.0, 0.0, 0.0]
+{% endcapture %}
+    {% include mc_rtc_configuration_row.html entry="robots" desc="Additional robots to load alongside MainRobot, shared by every enabled controller. Keys are robot names, values are a robot module (and optional init_pos/frames) or a visual geometry description. A controller can extend or override this by declaring its own 'robots' entry in its own configuration. These robots are loaded by mc_rtc itself after the controller is constructed, so this applies uniformly to every controller (including all of mc_rtc's own sample controllers) regardless of how it uses its own configuration." example=robots_example %}
     <tr>
       <th scope="row">Enabled</th>
       <td>Provides a list of enabled controllers. See the <a href="{{site.baseurl}}/tutorials/samples/list-of-samples.html">list of all available sample controllers</a>.</td>

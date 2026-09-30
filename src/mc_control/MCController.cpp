@@ -215,29 +215,11 @@ MCController::MCController(const std::vector<std::shared_ptr<mc_rbdyn::RobotModu
   postureTask = std::make_shared<mc_tasks::PostureTask>(solver(), 0, 10.0, 5.0);
   /** Load additional robots from the configuration */
   {
-    auto init_robot = [&](const std::string & robotName, const mc_rtc::Configuration & config)
-    {
-      if(!hasRobot(robotName)) return;
-      auto & robot = robots().robot(robotName);
-      auto & realRobot = realRobots().robot(robotName);
-      /** Set initial robot base pose */
-      if(config.has("init_pos"))
-      {
-        robot.posW(config("init_pos"));
-        realRobot.posW(robot.posW());
-      }
-      /** Load additional frames */
-      {
-        auto frames = config("frames", std::vector<mc_rbdyn::RobotModule::FrameDescription>{});
-        robot.makeFrames(frames);
-        realRobot.makeFrames(frames);
-      }
-    };
     if(config.has("init_pos"))
     {
       mc_rtc::log::deprecated("mc_control::fsm::Controller", "init_pos",
                               fmt::format("robots/{}/init_pos", robot().name()));
-      init_robot(robot().name(), config);
+      initRobotFromConfig(robot().name(), config);
     }
     auto config_robots = config("robots", mc_rtc::Configuration{});
     auto config_robots_keys = config_robots.keys();
@@ -252,40 +234,14 @@ MCController::MCController(const std::vector<std::shared_ptr<mc_rbdyn::RobotModu
                                        "in your FSM configuration. Please use \"robots/{}/init_pos\" only.",
                                        robot().name(), robot().name());
         }
-        init_robot(rname, rconfig);
+        initRobotFromConfig(rname, rconfig);
       }
       else if(rconfig.has("module") || rconfig.has("visual"))
       {
-        mc_rtc::log::info("robot config {}", rconfig.dump(true, true));
-        // Load robot from either a robot module or create one from a "visual" shape
-        mc_rbdyn::RobotModulePtr rm = nullptr;
-        if(rconfig.has("module"))
-        {
-          auto params = [&]() -> std::vector<std::string>
-          {
-            auto module = rconfig("module");
-            if(module.isArray()) { return module.operator std::vector<std::string>(); }
-            std::vector<std::string> params = rconfig("params", std::vector<std::string>{});
-            params.insert(params.begin(), module.operator std::string());
-            return params;
-          }();
-          rm = mc_rbdyn::RobotLoader::get_robot_module(params);
-          if(!rm) { mc_rtc::log::error_and_throw("Failed to load {} as specified in configuration", rname); }
-        }
-        else if(rconfig.has("visual"))
-        {
-          rm = mc_rbdyn::robotModuleFromVisual(rname, rconfig("visual"));
-          if(!rm)
-          {
-            mc_rtc::log::error_and_throw("Failed to load robot from a 'visual' configuration:\n{}",
-                                         rconfig("visual").dump(true, true));
-          }
-        }
-        if(!rm) { mc_rtc::log::error_and_throw("No robot module or visual description specified for {}", rname); }
-        auto & robot = loadRobot(rm, rname);
+        auto & robot = loadRobotFromConfig(rname, rconfig);
         load_robot_config(robot);
         rconfig = config("robots")(rname);
-        init_robot(rname, rconfig);
+        initRobotFromConfig(rname, rconfig);
       }
       else
       {
@@ -344,6 +300,106 @@ MCController::~MCController()
 {
   gui()->reset();
   datastore().clear();
+}
+
+void MCController::initRobotFromConfig(const std::string & robotName, const mc_rtc::Configuration & config)
+{
+  if(!hasRobot(robotName)) return;
+  auto & robot = robots().robot(robotName);
+  auto & realRobot = realRobots().robot(robotName);
+  /** Set initial robot base pose */
+  if(config.has("init_pos"))
+  {
+    robot.posW(config("init_pos"));
+    realRobot.posW(robot.posW());
+  }
+  /** Load additional frames */
+  {
+    auto frames = config("frames", std::vector<mc_rbdyn::RobotModule::FrameDescription>{});
+    robot.makeFrames(frames);
+    realRobot.makeFrames(frames);
+  }
+}
+
+mc_rbdyn::Robot & MCController::loadRobotFromConfig(const std::string & rname, const mc_rtc::Configuration & rconfig)
+{
+  mc_rtc::log::info("robot config {}", rconfig.dump(true, true));
+  // Load robot from either a robot module or create one from a "visual" shape
+  mc_rbdyn::RobotModulePtr rm = nullptr;
+  if(rconfig.has("module"))
+  {
+    auto params = [&]() -> std::vector<std::string>
+    {
+      auto module = rconfig("module");
+      if(module.isArray()) { return module.operator std::vector<std::string>(); }
+      std::vector<std::string> params = rconfig("params", std::vector<std::string>{});
+      params.insert(params.begin(), module.operator std::string());
+      return params;
+    }();
+    rm = mc_rbdyn::RobotLoader::get_robot_module(params);
+    if(!rm) { mc_rtc::log::error_and_throw("Failed to load {} as specified in configuration", rname); }
+  }
+  else if(rconfig.has("visual"))
+  {
+    rm = mc_rbdyn::robotModuleFromVisual(rname, rconfig("visual"));
+    if(!rm)
+    {
+      mc_rtc::log::error_and_throw("Failed to load robot from a 'visual' configuration:\n{}",
+                                   rconfig("visual").dump(true, true));
+    }
+  }
+  if(!rm) { mc_rtc::log::error_and_throw("No robot module or visual description specified for {}", rname); }
+  return loadRobot(rm, rname);
+}
+
+void MCController::loadAdditionalRobots(const mc_rtc::Configuration & config)
+{
+  auto config_robots = config("Robots", mc_rtc::Configuration{});
+  bool loaded_one = false;
+  for(const auto & rname : config_robots.keys())
+  {
+    // Already loaded, either by this controller's own constructor (if it forwards its
+    // configuration) or by a previous call to this function, or because a robot already provides
+    // this name (e.g. the default "ground" environment). Skipping keeps this function idempotent.
+    if(hasRobot(rname)) { continue; }
+    auto rconfig = config_robots(rname);
+    if(!(rconfig.has("module") || rconfig.has("visual"))) { continue; }
+    auto & robot = loadRobotFromConfig(rname, rconfig);
+    initRobotFromConfig(rname, rconfig);
+    // Create a posture task for actuated robots, mirroring mc_control::fsm::Controller's
+    // behaviour for all of its robots.
+    if(robot.mb().nrDof() - robot.mb().joint(0).dof() > 0)
+    {
+      double stiffness = 1.0;
+      double weight = 10.0;
+      if(config.has(rname))
+      {
+        auto robot_config = config(rname);
+        if(robot_config.has("posture"))
+        {
+          robot_config("posture")("stiffness", stiffness);
+          robot_config("posture")("weight", weight);
+        }
+      }
+      auto t = std::make_shared<mc_tasks::PostureTask>(solver(), robot.robotIndex(), stiffness, weight);
+      t->name("additional_" + t->name());
+      additional_posture_tasks_[rname] = t;
+      solver().addTask(t);
+    }
+    loaded_one = true;
+  }
+  if(loaded_one)
+  {
+    mc_rtc::log::info("Robots loaded in controller (after construction):");
+    for(const auto & r : robots()) { mc_rtc::log::info("- {}", r.name()); }
+  }
+}
+
+std::shared_ptr<mc_tasks::PostureTask> MCController::additionalPostureTask(const std::string & robotName) const
+{
+  auto it = additional_posture_tasks_.find(robotName);
+  if(it != additional_posture_tasks_.end()) { return it->second; }
+  return nullptr;
 }
 
 mc_rbdyn::Robot & MCController::loadRobot(mc_rbdyn::RobotModulePtr rm, const std::string & name)
